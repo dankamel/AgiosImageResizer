@@ -13,9 +13,6 @@ struct ContentView: View {
     @State private var results: [ImageResult] = []
     @State private var history: [HistoryItem] = []
 
-    // Specify the target dimensions for resizing
-    let targetSize = CGSize(width: 576, height: 781)
-
     var body: some View {
         HStack {
             SidebarView(history: $history)
@@ -57,11 +54,16 @@ struct ContentView: View {
                                 if let resizedPath = resizedPath {
                                     Button("Download Resized Image") {
                                         let panel = NSSavePanel()
-                                        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
-                                        panel.nameFieldStringValue = resizedPath.lastPathComponent
+                                        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+                                        panel.nameFieldStringValue = "Focused " + resizedPath.lastPathComponent
                                         panel.allowedContentTypes = [.png]
                                         if panel.runModal() == .OK, let destination = panel.url {
-                                            try? FileManager.default.copyItem(at: resizedPath, to: destination)
+                                            do {
+                                                try FileManager.default.copyItem(at: resizedPath, to: destination)
+                                                print("Image saved to \(destination.path)")
+                                            } catch {
+                                                print("Failed to save the image: \(error.localizedDescription)")
+                                            }
                                         }
                                     }
                                 }
@@ -101,11 +103,15 @@ struct ContentView: View {
             }
 
             if let resized = resizeImageIfNeeded(nsImage) {
-                let resizedPath = tempDirectory.appendingPathComponent(url.lastPathComponent)
-                saveImage(resized, to: resizedPath)
-                results.append(.tooLarge(url: url, resizedImage: resized, resizedPath: resizedPath))
+                if resized != nsImage {
+                    let resizedPath = tempDirectory.appendingPathComponent(url.lastPathComponent)
+                    saveImage(resized, to: resizedPath)
+                    results.append(.tooLarge(url: url, resizedImage: resized, resizedPath: resizedPath))
+                } else {
+                    results.append(.acceptable(url: url))
+                }
             } else {
-                results.append(.acceptable(url: url))
+                results.append(.failed(url: url))
             }
         }
 
@@ -113,8 +119,19 @@ struct ContentView: View {
     }
 
     private func resizeImageIfNeeded(_ image: NSImage) -> NSImage? {
-        // Resize the image to the target size regardless of the original size
-        let newSize = targetSize
+        let maxPixelArea: CGFloat = 750_000 // Adjusted smaller maximum pixel area
+        let currentArea = image.size.width * image.size.height
+
+        if currentArea <= maxPixelArea {
+            return image // No resizing needed
+        }
+
+        // Calculate the new size while maintaining aspect ratio
+        let scaleFactor = sqrt(maxPixelArea / currentArea)
+        let newSize = CGSize(
+            width: round(image.size.width * scaleFactor),
+            height: round(image.size.height * scaleFactor)
+        )
 
         guard let bitmapRep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
