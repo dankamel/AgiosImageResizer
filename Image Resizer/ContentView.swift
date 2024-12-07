@@ -14,7 +14,7 @@ struct ContentView: View {
     @State private var results: [ImageResult] = []
     @State private var history: [HistoryItem] = []
     
-    // Dictionary to store pairs keyed by a base name:
+    // Dictionary to store pairs keyed by a base name (without extension):
     // baseName: (original: URL?, focused: URL?)
     @State private var imagePairs = [String: (original: URL?, focused: URL?)]()
 
@@ -48,50 +48,77 @@ struct ContentView: View {
                     .padding()
                 }
 
-                // Display the results in two columns
-                // We'll merge `results` with `imagePairs` to show original statuses and focused versions side by side.
                 let mergedPairs = mergeResultsWithPairs(results: results, pairs: imagePairs)
+
+                // Column Titles
+                HStack {
+                    Text("Original")
+                        .font(.headline)
+                    Spacer()
+                    Text("Focused")
+                        .font(.headline)
+                }
+                .padding([.leading, .trailing, .top])
 
                 List {
                     ForEach(mergedPairs.keys.sorted(), id: \.self) { baseName in
                         let item = mergedPairs[baseName]!
-                        HStack {
+                        HStack(alignment: .top) {
                             // Left column: Original image name and status
-                            if let originalURL = item.originalURL, let status = item.status {
-                                switch status {
-                                case .acceptable:
-                                    Text("\(originalURL.lastPathComponent) - Acceptable")
+                            Group {
+                                if let originalURL = item.originalURL, let status = item.status {
+                                    switch status {
+                                    case .acceptable:
+                                        Text("\(originalURL.lastPathComponent) - Acceptable")
+                                            .lineLimit(nil)
+                                            .fixedSize(horizontal: false, vertical: true)
 
-                                case .tooLarge:
-                                    HStack {
-                                        Text("\(originalURL.lastPathComponent) - Too Large")
-                                        // Only show "Download Resized Image" button if no focused version was originally provided
-                                        if item.focusedURL == nil {
-                                            Button("Download Resized Image") {
-                                                promptToSaveResizedImage(from: originalURL)
+                                    case .tooLarge:
+                                        HStack(alignment: .top) {
+                                            Text("\(originalURL.lastPathComponent) - Too Large")
+                                                .lineLimit(nil)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                            // Only show "Download Resized Image" if no focused version was originally provided
+                                            if item.focusedURL == nil {
+                                                Button("Download Resized Image") {
+                                                    promptToSaveResizedImage(from: originalURL)
+                                                }
                                             }
                                         }
+                                    case .failed:
+                                        Text("\(originalURL.lastPathComponent) - Failed")
+                                            .lineLimit(nil)
+                                            .fixedSize(horizontal: false, vertical: true)
                                     }
-
-                                case .failed:
-                                    Text("\(originalURL.lastPathComponent) - Failed")
+                                } else if let originalURL = item.originalURL {
+                                    // If no status found (shouldn't happen), just show the name
+                                    Text("\(originalURL.lastPathComponent)")
+                                        .lineLimit(nil)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                } else {
+                                    // No original found (also shouldn't happen)
+                                    Text("No original image")
+                                        .lineLimit(nil)
+                                        .fixedSize(horizontal: false, vertical: true)
                                 }
-
-                            } else if let originalURL = item.originalURL {
-                                // If no status found (shouldn't happen, but just in case), just show the name
-                                Text("\(originalURL.lastPathComponent)")
-                            } else {
-                                // No original found (also shouldn't happen)
-                                Text("No original image")
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                            Spacer()
+                            // Vertical divider between columns
+                            Rectangle()
+                                .fill(Color.secondary)
+                                .frame(width: 1)
+                                .padding(.horizontal, 8)
 
-                            // Right column: Focused version if it was originally dropped by the user
+                            // Right column: Focused version if originally provided by the user
                             if let focusedURL = item.focusedURL {
-                                Text("Focused \(focusedURL.lastPathComponent)")
+                                Text("\(focusedURL.lastPathComponent)")
+                                    .lineLimit(nil)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             } else {
                                 Text("") // No focused version
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
@@ -115,22 +142,19 @@ struct ContentView: View {
         }
     }
     
-    // Adds the dropped image to the pairs dictionary
-    // If the file name starts with "Focused ", it's a focused version.
-    // Otherwise, it's considered original.
     private func addToPairs(url: URL) {
         let fileName = url.lastPathComponent
-        let baseName: String
-        let isFocused: Bool
-        
-        if fileName.lowercased().hasPrefix("focused ") {
-            isFocused = true
-            baseName = String(fileName.dropFirst("Focused ".count))
-        } else {
-            isFocused = false
-            baseName = fileName
+        var withoutFocused = fileName
+        // Check if starts with "Focused "
+        if withoutFocused.lowercased().hasPrefix("focused ") {
+            withoutFocused = String(withoutFocused.dropFirst("Focused ".count))
         }
         
+        // Remove the extension to get a base name that doesn't depend on file type
+        let baseName = URL(fileURLWithPath: withoutFocused).deletingPathExtension().lastPathComponent
+
+        let isFocused = fileName.lowercased().hasPrefix("focused ")
+
         var entry = imagePairs[baseName] ?? (original: nil, focused: nil)
         if isFocused {
             entry.focused = url
@@ -170,9 +194,7 @@ struct ContentView: View {
         history.append(HistoryItem(date: Date(), results: results))
     }
 
-    // Merges the imagePairs dictionary with the results array to determine statuses
     private func mergeResultsWithPairs(results: [ImageResult], pairs: [String: (original: URL?, focused: URL?)]) -> [String: (originalURL: URL?, focusedURL: URL?, status: ImageStatus?)] {
-        // Create a lookup table for results keyed by URL
         var resultLookup = [URL: ImageStatus]()
         for res in results {
             switch res {
@@ -185,7 +207,6 @@ struct ContentView: View {
             }
         }
 
-        // Map pairs to a structure that includes the status
         var merged = [String: (originalURL: URL?, focusedURL: URL?, status: ImageStatus?)]()
         for (baseName, entry) in pairs {
             let status = entry.original.flatMap { resultLookup[$0] }
@@ -195,10 +216,6 @@ struct ContentView: View {
     }
 
     private func promptToSaveResizedImage(from originalURL: URL) {
-        // At this point, we know it's too large and no focused version was provided.
-        // We must find the resized image from results again to save it.
-        // The resized image was saved to a temporary location. Let's find it.
-
         if let res = results.first(where: {
             if case .tooLarge(let url, _, let resizedPath) = $0 {
                 return url == originalURL && resizedPath != nil
@@ -228,7 +245,6 @@ struct ContentView: View {
             return image // No resizing needed
         }
 
-        // Calculate the new size while maintaining aspect ratio
         let scaleFactor = sqrt(maxPixelArea / currentArea)
         let newSize = CGSize(
             width: round(image.size.width * scaleFactor),
@@ -280,7 +296,6 @@ enum ImageResult: Hashable {
     case failed(url: URL)
 }
 
-// Represents the status of the original image after processing
 enum ImageStatus {
     case acceptable
     case tooLarge
