@@ -238,7 +238,7 @@ struct ContentView: View {
     }
 
     private func resizeImageIfNeeded(_ image: NSImage) -> NSImage? {
-        let maxPixelArea: CGFloat = 750_000
+        let maxPixelArea: CGFloat = 300_000
         let currentArea = image.size.width * image.size.height
 
         if currentArea <= maxPixelArea {
